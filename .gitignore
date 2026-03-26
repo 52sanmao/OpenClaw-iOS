@@ -1,0 +1,18 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserdata
+*.xcworkspace
+!*.xcodeproj/project.pbxproj
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# CocoaPods / SPM
+Pods/
+.build/
+Package.resolved
