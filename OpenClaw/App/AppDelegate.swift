@@ -9,12 +9,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        BackgroundTaskManager.register()
         return true
-    }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        BackgroundTaskManager.scheduleRefresh()
     }
 
     // MARK: - UNUserNotificationCenterDelegate

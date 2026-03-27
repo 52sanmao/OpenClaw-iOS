@@ -78,11 +78,14 @@ final class NotificationService: NSObject, ObservableObject {
     }
 
     func requestPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(
-            options: [.alert, .sound, .badge]
-        ) { [weak self] granted, _ in
-            Task { @MainActor in
-                self?.isAuthorized = granted
+        Task {
+            do {
+                let granted = try await UNUserNotificationCenter.current().requestAuthorization(
+                    options: [.alert, .sound, .badge]
+                )
+                self.isAuthorized = granted
+            } catch {
+                self.isAuthorized = false
             }
         }
     }

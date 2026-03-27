@@ -33,6 +33,7 @@ final class BonjourDiscovery: ObservableObject {
             domain: "local."
         )
 
+        let queue = DispatchQueue(label: "ai.openclaw.bonjour")
         let browser = NWBrowser(for: descriptor, using: params)
         self.browser = browser
 
@@ -55,7 +56,7 @@ final class BonjourDiscovery: ObservableObject {
             }
         }
 
-        browser.start(queue: .main)
+        browser.start(queue: queue)
 
         // Auto-stop after 10 seconds
         Task {
