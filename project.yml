@@ -9,6 +9,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
     DEVELOPMENT_TEAM: ""
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
@@ -24,7 +25,7 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: OpenClaw/Resources/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: ai.openclaw.mobile
+        PRODUCT_BUNDLE_IDENTIFIER: com.manasvardhan.openclaw
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_XR_DESIGNED_FOR: NO

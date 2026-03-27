@@ -4,52 +4,42 @@ import UIKit
 
 /// Manages background app refresh to maintain gateway connection
 /// and deliver notifications when the app is backgrounded.
+@MainActor
 enum BackgroundTaskManager {
-    static let refreshTaskId = "ai.openclaw.mobile.refresh"
+    nonisolated static let refreshTaskId = "ai.openclaw.mobile.refresh"
 
-    static func register() {
+    nonisolated static func register() {
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: refreshTaskId,
-            using: nil
+            using: .main
         ) { task in
             guard let refreshTask = task as? BGAppRefreshTask else { return }
+            refreshTask.expirationHandler = {
+                refreshTask.setTaskCompleted(success: false)
+            }
+            nonisolated(unsafe) let t = refreshTask
             Task { @MainActor in
-                handleRefresh(refreshTask)
+                let gateway = GatewayClient.shared
+                scheduleRefresh()
+
+                if gateway.connectionState != .connected {
+                    if let config = ConnectionStore.load() {
+                        try? await gateway.connect(config: config)
+                    }
+                }
+
+                if gateway.connectionState == .connected {
+                    _ = try? await gateway.sendRequest(method: "ping")
+                }
+
+                t.setTaskCompleted(success: true)
             }
         }
     }
 
     static func scheduleRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: refreshTaskId)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // 15 min
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
-    }
-
-    @MainActor
-    private static func handleRefresh(_ task: BGAppRefreshTask) {
-        // Schedule the next refresh
-        scheduleRefresh()
-
-        let gateway = GatewayClient.shared
-
-        task.expirationHandler = {
-            // Clean up if we run out of time
-        }
-
-        Task { @MainActor in
-            // If disconnected, try to reconnect
-            if gateway.connectionState != .connected {
-                if let config = ConnectionStore.load() {
-                    try? await gateway.connect(config: config)
-                }
-            }
-
-            // Send a ping to keep connection alive
-            if gateway.connectionState == .connected {
-                _ = try? await gateway.sendRequest(method: "ping")
-            }
-
-            task.setTaskCompleted(success: true)
-        }
     }
 }

@@ -21,27 +21,26 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $appState.selectedTab) {
-            ForEach(AppState.Tab.allCases, id: \.self) { tab in
-                tab.view
-                    .tabItem {
-                        Label(tab.label, systemImage: tab.icon)
-                    }
-                    .tag(tab)
-            }
+            ChatView()
+                .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right.fill") }
+                .tag(AppState.Tab.chat)
+
+            SessionsView()
+                .tabItem { Label("Sessions", systemImage: "list.bullet.rectangle.portrait.fill") }
+                .tag(AppState.Tab.sessions)
+
+            CronView()
+                .tabItem { Label("Cron", systemImage: "clock.fill") }
+                .tag(AppState.Tab.cron)
+
+            NodesView()
+                .tabItem { Label("Nodes", systemImage: "antenna.radiowaves.left.and.right") }
+                .tag(AppState.Tab.nodes)
+
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                .tag(AppState.Tab.settings)
         }
         .tint(.orange)
-    }
-}
-
-private extension AppState.Tab {
-    @ViewBuilder
-    var view: some View {
-        switch self {
-        case .chat: ChatView()
-        case .sessions: SessionsView()
-        case .cron: CronView()
-        case .nodes: NodesView()
-        case .settings: SettingsView()
-        }
     }
 }
