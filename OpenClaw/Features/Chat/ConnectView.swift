@@ -54,7 +54,7 @@ struct ConnectView: View {
                                             Text(gw.displayName ?? gw.name)
                                                 .font(.body(14, weight: .semibold))
                                                 .foregroundStyle(Color.textPrimary)
-                                            Text("\(gw.host):\(gw.port)")
+                                            Text(ConnectionConfig(host: gw.host, port: gw.port, useTLS: gw.useTLS, token: "").displayName)
                                                 .font(.label(11))
                                                 .foregroundStyle(Color.textTertiary)
                                         }
@@ -84,12 +84,17 @@ struct ConnectView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         SectionLabel(text: "手动连接")
 
-                        VanguardField(title: "主机", placeholder: "192.168.1.10 or mybox.tail...", text: $host)
+                        VanguardField(title: "网关地址", placeholder: "ws://host:18789 或 https://host/path", text: $host)
                             .textInputAutocapitalization(.never)
                             .keyboardType(.URL)
 
+                        Text("支持完整 ws/wss 地址，也支持 http/https 控制地址并自动转换为 WebSocket。")
+                            .font(.label(11))
+                            .foregroundStyle(Color.textTertiary)
+
                         VanguardField(title: "端口", placeholder: "18789", text: $port)
                             .keyboardType(.numberPad)
+                            .disabled(usesFullURLInput)
 
                         VanguardField(title: "令牌", placeholder: "网关认证令牌", text: $token, isSecure: true)
 
@@ -167,10 +172,18 @@ struct ConnectView: View {
         }
     }
 
+    private var usesFullURLInput: Bool {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed.hasPrefix("ws://") ||
+            trimmed.hasPrefix("wss://") ||
+            trimmed.hasPrefix("http://") ||
+            trimmed.hasPrefix("https://")
+    }
+
     private var canConnect: Bool {
         !host.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !port.isEmpty &&
-        !token.trimmingCharacters(in: .whitespaces).isEmpty
+        !token.trimmingCharacters(in: .whitespaces).isEmpty &&
+        (usesFullURLInput || !port.isEmpty)
     }
 
     private func loadSavedConfig() {
@@ -183,12 +196,18 @@ struct ConnectView: View {
     }
 
     private func connect() {
-        guard let portNum = Int(port) else {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let portNum: Int
+        if usesFullURLInput {
+            portNum = Int(port) ?? 18789
+        } else if let parsedPort = Int(port) {
+            portNum = parsedPort
+        } else {
             errorMessage = "端口号无效"
             return
         }
         let config = ConnectionConfig(
-            host: host.trimmingCharacters(in: .whitespaces),
+            host: trimmedHost,
             port: portNum,
             useTLS: useTLS,
             token: token.trimmingCharacters(in: .whitespaces)

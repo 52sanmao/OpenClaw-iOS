@@ -60,8 +60,10 @@ struct SettingsView: View {
 
                         VStack(spacing: 0) {
                             if let config = ConnectionStore.load() {
-                                SettingsRow(label: "主机", value: config.displayName)
-                                SettingsRow(label: "TLS", value: config.useTLS ? "已启用" : "已禁用")
+                                SettingsRow(label: "地址", value: config.displayName)
+                                if !config.host.hasPrefix("ws://") && !config.host.hasPrefix("wss://") {
+                                    SettingsRow(label: "TLS", value: config.useTLS ? "已启用" : "已禁用")
+                                }
                             }
                             SettingsRow(label: "状态", value: statusText, valueColor: statusColor)
                             if !gateway.serverVersion.isEmpty {

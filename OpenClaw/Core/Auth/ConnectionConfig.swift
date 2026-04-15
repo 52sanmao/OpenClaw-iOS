@@ -1,23 +1,61 @@
 import Foundation
 
 struct ConnectionConfig: Codable, Equatable {
-    var host: String       // e.g. "192.168.1.10" or "mybox.tailnet.ts.net"
-    var port: Int           // e.g. 18789
-    var useTLS: Bool        // wss:// vs ws://
+    var host: String       // host or full gateway/control URL
+    var port: Int           // fallback port for host-only input
+    var useTLS: Bool        // legacy hint for host-only input
     var token: String       // gateway auth token
 
+    static func normalizeGatewayEndpoint(_ rawValue: String, fallbackPort: Int, useTLS: Bool) -> (host: String, port: Int) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return (rawValue, fallbackPort)
+        }
+
+        if let components = URLComponents(string: trimmed),
+           let scheme = components.scheme?.lowercased() {
+            if scheme == "ws" || scheme == "wss" {
+                return (trimmed, components.port ?? fallbackPort)
+            }
+
+            if scheme == "http" || scheme == "https" {
+                var normalized = components
+                normalized.scheme = (scheme == "https") ? "wss" : "ws"
+                let resolvedPort = components.port ?? ((scheme == "https") ? 443 : 80)
+                if normalized.path.isEmpty {
+                    normalized.path = "/"
+                }
+                if let urlString = normalized.string {
+                    return (urlString, resolvedPort)
+                }
+            }
+        }
+
+        return (trimmed, fallbackPort)
+    }
+
     var websocketURL: URL {
+        let normalized = Self.normalizeGatewayEndpoint(host, fallbackPort: port, useTLS: useTLS)
+        if normalized.host.hasPrefix("ws://") || normalized.host.hasPrefix("wss://") {
+            return URL(string: normalized.host)!
+        }
         let scheme = useTLS ? "wss" : "ws"
-        return URL(string: "\(scheme)://\(host):\(port)")!
+        return URL(string: "\(scheme)://\(normalized.host):\(normalized.port)")!
     }
 
     var httpBaseURL: URL {
-        let scheme = useTLS ? "https" : "http"
-        return URL(string: "\(scheme)://\(host):\(port)")!
+        let wsURL = websocketURL
+        var components = URLComponents(url: wsURL, resolvingAgainstBaseURL: false)!
+        components.scheme = wsURL.scheme == "wss" ? "https" : "http"
+        return components.url!
     }
 
     var displayName: String {
-        "\(host):\(port)"
+        let normalized = Self.normalizeGatewayEndpoint(host, fallbackPort: port, useTLS: useTLS)
+        if normalized.host.hasPrefix("ws://") || normalized.host.hasPrefix("wss://") {
+            return normalized.host
+        }
+        return "\(normalized.host):\(normalized.port)"
     }
 }
 

@@ -58,7 +58,16 @@ final class GatewayClient: ObservableObject {
         let session = URLSession(configuration: .default)
         self.urlSession = session
 
-        let ws = session.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        let originScheme = url.scheme == "wss" ? "https" : "http"
+        if let host = url.host {
+            let port = url.port ?? (url.scheme == "wss" ? 443 : 80)
+            let origin = "\(originScheme)://\(host):\(port)"
+            request.setValue(origin, forHTTPHeaderField: "Origin")
+            NSLog("[GW] Setting Origin header: \(origin)")
+        }
+
+        let ws = session.webSocketTask(with: request)
         self.webSocket = ws
         ws.resume()
 
@@ -84,6 +93,7 @@ final class GatewayClient: ObservableObject {
             NSLog("[GW] Got challenge nonce=\(nonce.prefix(8))...")
         } catch {
             NSLog("[GW] Challenge wait failed: \(error)")
+            clearServerInfo()
             connectionState = .error("未收到网关质询: \(error.localizedDescription)")
             throw error
         }
@@ -111,6 +121,7 @@ final class GatewayClient: ObservableObject {
 
         guard response.ok else {
             let msg = response.error?.message ?? "连接被拒绝"
+            clearServerInfo()
             connectionState = .error(msg)
             throw GatewayError.connectionRejected(msg)
         }
@@ -133,6 +144,7 @@ final class GatewayClient: ObservableObject {
 
     func disconnect() {
         cleanupConnection()
+        clearServerInfo()
         connectionState = .disconnected
     }
 
@@ -229,6 +241,7 @@ final class GatewayClient: ObservableObject {
                 case .failure(let error):
                     NSLog("[GW] receive FAILED: \(error)")
                     self.isReceiving = false
+                    self.clearServerInfo()
                     if self.connectionState == .connected {
                         self.connectionState = .error(error.localizedDescription)
                         self.attemptReconnect()
@@ -283,6 +296,13 @@ final class GatewayClient: ObservableObject {
         default:
             break
         }
+    }
+
+    private func clearServerInfo() {
+        serverVersion = ""
+        serverHost = ""
+        connId = ""
+        uptimeMs = 0
     }
 
     private func startTickTimer(intervalMs: Int) {
