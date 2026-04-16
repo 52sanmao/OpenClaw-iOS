@@ -356,14 +356,6 @@ final class GatewayClient: ObservableObject {
         ]
     }
 
-    private static func timestampMs(from iso8601: String?) -> Int {
-        guard let iso8601,
-              let date = ISO8601DateFormatter().date(from: iso8601) else {
-            return Int(Date().timeIntervalSince1970 * 1000)
-        }
-        return Int(date.timeIntervalSince1970 * 1000)
-    }
-
     private func mappedChatHistoryPayload(sessionKey: String, history: IronClawThreadHistoryResponse) -> [String: Any] {
         [
             "sessionKey": sessionKey,
