@@ -78,7 +78,7 @@ struct NodesView: View {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            gateway.noteViewRequest("nodes_view", detail: "刷新节点列表（基于 sessions 映射）")
+            gateway.noteViewRequest("nodes_view", detail: "刷新节点列表（自动回退到线程列表）")
             let response = try await gateway.sendRequest(method: "sessions.list", params: ["limit": 100])
             guard response.ok,
                   let payload = response.payload?.dict,
@@ -91,12 +91,19 @@ struct NodesView: View {
             nodes = sessions.compactMap { dict in
                 guard let key = dict["key"] as? String else { return nil }
                 let kind = dict["kind"] as? String ?? "direct"
+                let host = (dict["displayName"] as? String) ?? (dict["derivedTitle"] as? String) ?? (dict["label"] as? String)
+                let version = dict["model"] as? String
+                let channel = dict["channel"] as? String
+                var caps = [kind]
+                if let channel, !channel.isEmpty, !caps.contains(channel) {
+                    caps.append(channel)
+                }
                 return NodeInfo(
                     deviceId: key,
-                    host: dict["label"] as? String,
-                    platform: "ironclaw",
-                    version: dict["model"] as? String,
-                    caps: [kind],
+                    host: host,
+                    platform: channel == "routine" ? "routine" : "ironclaw",
+                    version: version,
+                    caps: caps,
                     lastSeen: nil
                 )
             }

@@ -302,7 +302,7 @@ final class LiveAgentsViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            gateway.noteViewRequest("agents_view", detail: "刷新代理列表（基于 sessions 映射）")
+            gateway.noteViewRequest("agents_view", detail: "刷新代理列表（自动回退到线程列表）")
             let sessResponse = try await gateway.sendRequest(
                 method: "sessions.list",
                 params: [

@@ -105,15 +105,15 @@ final class GatewayClient: ObservableObject {
     }
 
     func sessionsErrorHint() -> String? {
-        latestDiagnostics(forAny: ["sessions", "tools/invoke"])
+        latestDiagnostics(forAny: ["sessions", "tools/invoke", "api/chat/threads"])
     }
 
     func agentsErrorHint() -> String? {
-        latestDiagnostics(forAny: ["agents", "sessions.list", "tools/invoke"])
+        latestDiagnostics(forAny: ["agents", "sessions.list", "tools/invoke", "api/chat/threads"])
     }
 
     func nodesErrorHint() -> String? {
-        latestDiagnostics(forAny: ["nodes", "sessions.list", "tools/invoke"])
+        latestDiagnostics(forAny: ["nodes", "sessions.list", "tools/invoke", "api/chat/threads"])
     }
 
     func ensureDefaultConnectionPreset() {
@@ -517,8 +517,17 @@ final class GatewayClient: ObservableObject {
     }
 
     private func sessionsListPayload(limit: Int) async throws -> [String: Any] {
-        let payload = try await invokeTool(tool: "sessions_list", args: ["limit": limit])
-        return payload
+        do {
+            return try await invokeTool(tool: "sessions_list", args: ["limit": limit])
+        } catch let error as GatewayError {
+            if case .serverError(let status, let type, _) = error,
+               status == 404,
+               type == "tool_unavailable" {
+                log("sessions.list 扩展接口未启用，回退到 /api/chat/threads")
+                return try await threadBackedSessionsPayload(limit: limit)
+            }
+            throw error
+        }
     }
 
     private func mappedSessionsListResponse(limit: Int) async throws -> ResponseFrame {
@@ -528,7 +537,7 @@ final class GatewayClient: ObservableObject {
 
     private func mappedChatHistoryResponse(sessionKey: String, limit: Int, includeTools: Bool) async throws -> ResponseFrame {
         _ = includeTools
-        if let threadId = threadIDsBySessionKey[sessionKey] ?? (UUID(uuidString: sessionKey) != nil ? sessionKey : nil) {
+        if let threadId = try await resolvedThreadIDForHistory(sessionKey: sessionKey) {
             let history = try await fetchThreadHistory(threadId: threadId)
             let payload = mappedChatHistoryPayload(sessionKey: sessionKey, history: history)
             return ResponseFrame(type: "res", id: UUID().uuidString, ok: true, payload: AnyCodable(payload), error: nil)
@@ -545,6 +554,125 @@ final class GatewayClient: ObservableObject {
         return ResponseFrame(type: "res", id: UUID().uuidString, ok: true, payload: AnyCodable(payload), error: nil)
     }
 
+    private func resolvedThreadIDForHistory(sessionKey: String) async throws -> String? {
+        if let threadId = threadIDsBySessionKey[sessionKey] ?? (UUID(uuidString: sessionKey) != nil ? sessionKey : nil) {
+            return threadId
+        }
+
+        if sessionKey.hasSuffix(":main") {
+            let listing = try await fetchThreadList()
+            if let assistant = listing.assistantThread ?? listing.threads.first(where: { $0.threadType?.lowercased() == "assistant" }) {
+                threadIDsBySessionKey[sessionKey] = assistant.id
+                log("chat.history 使用线程列表回退解析主会话 session=\(sessionKey) thread=\(assistant.id)")
+                return assistant.id
+            }
+        }
+
+        return nil
+    }
+
+    private func threadBackedSessionsPayload(limit: Int) async throws -> [String: Any] {
+        let listing = try await fetchThreadList()
+        var sessions: [[String: Any]] = []
+
+        if let assistant = listing.assistantThread {
+            let sessionKey = "agent:main:main"
+            threadIDsBySessionKey[sessionKey] = assistant.id
+            sessions.append(makeThreadSessionPayload(thread: assistant, sessionKey: sessionKey, fallbackTitle: "主会话"))
+        }
+
+        for thread in listing.threads {
+            let sessionKey = sessionKey(for: thread)
+            threadIDsBySessionKey[sessionKey] = thread.id
+            if sessions.contains(where: { ($0["key"] as? String) == sessionKey }) {
+                continue
+            }
+            sessions.append(makeThreadSessionPayload(thread: thread, sessionKey: sessionKey, fallbackTitle: fallbackTitle(for: thread)))
+        }
+
+        let sorted = sessions.sorted { (($0["updatedAt"] as? Int) ?? 0) > (($1["updatedAt"] as? Int) ?? 0) }
+        let limited = Array(sorted.prefix(limit))
+        log("线程列表回退成功 sessions=\(limited.count)")
+        return [
+            "count": limited.count,
+            "sessions": limited,
+        ]
+    }
+
+    private func fetchThreadList() async throws -> IronClawThreadListResponse {
+        let cfg = try requireConfig()
+        let token = try requireToken(cfg)
+        let url = try buildURL(baseURL: cfg.httpBaseURL, path: "api/chat/threads")
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try validateHTTPResponse(response, data: data, path: "api/chat/threads")
+        let listing = try snakeCaseDecoder.decode(IronClawThreadListResponse.self, from: data)
+        log("读取线程列表成功 count=\(listing.threads.count) assistant=\(listing.assistantThread?.id ?? "none")")
+        return listing
+    }
+
+    private func sessionKey(for thread: IronClawThreadInfo) -> String {
+        if thread.threadType?.lowercased() == "assistant" {
+            return "agent:main:main"
+        }
+        if thread.threadType?.lowercased() == "routine" {
+            return "agent:main:cron:\(thread.id)"
+        }
+        return thread.id
+    }
+
+    private func fallbackTitle(for thread: IronClawThreadInfo) -> String {
+        let title = thread.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !title.isEmpty {
+            return title
+        }
+        switch thread.threadType?.lowercased() {
+        case "assistant":
+            return "主会话"
+        case "routine":
+            return "定时任务线程"
+        default:
+            return "聊天线程 \(thread.id.prefix(8))"
+        }
+    }
+
+    private func kind(for thread: IronClawThreadInfo) -> String {
+        switch thread.threadType?.lowercased() {
+        case "routine":
+            return "cron"
+        case "assistant":
+            return "main"
+        default:
+            return thread.channel?.lowercased() == "routine" ? "cron" : "direct"
+        }
+    }
+
+    private func makeThreadSessionPayload(thread: IronClawThreadInfo, sessionKey: String, fallbackTitle: String) -> [String: Any] {
+        let title = fallbackTitle(for: thread)
+        return [
+            "key": sessionKey,
+            "id": thread.id,
+            "sessionId": thread.id,
+            "kind": kind(for: thread),
+            "channel": thread.channel ?? "gateway",
+            "label": title,
+            "derivedTitle": title,
+            "displayName": title,
+            "lastMessage": title,
+            "startedAt": Self.timestampMs(from: thread.createdAt),
+            "updatedAt": Self.timestampMs(from: thread.updatedAt),
+            "totalTokens": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "turnCount": thread.turnCount ?? 0,
+            "state": thread.state ?? "idle"
+        ]
+    }
+
     private func mappedConnectionMetadata(config: ConnectionConfig) async {
         if let status = try? await fetchGatewayStatus(config: config) {
             serverVersion = status.version ?? serverVersion
@@ -552,8 +680,35 @@ final class GatewayClient: ObservableObject {
         }
     }
 
+    private struct IronClawThreadListResponse: Decodable {
+        let assistantThread: IronClawThreadInfo?
+        let threads: [IronClawThreadInfo]
+        let activeThread: String?
+
+        enum CodingKeys: String, CodingKey {
+            case assistantThread = "assistant_thread"
+            case threads
+            case activeThread = "active_thread"
+        }
+    }
+
     private struct IronClawThreadInfo: Decodable {
         let id: String
+        let state: String?
+        let turnCount: Int?
+        let createdAt: String?
+        let updatedAt: String?
+        let title: String?
+        let threadType: String?
+        let channel: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id, state, title, channel
+            case turnCount = "turn_count"
+            case createdAt = "created_at"
+            case updatedAt = "updated_at"
+            case threadType = "thread_type"
+        }
     }
 
     private struct IronClawThreadHistoryResponse: Decodable {

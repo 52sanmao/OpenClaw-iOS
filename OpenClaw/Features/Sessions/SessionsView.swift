@@ -80,7 +80,7 @@ struct SessionsView: View {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            gateway.noteViewRequest("sessions_view", detail: "刷新会话列表")
+            gateway.noteViewRequest("sessions_view", detail: "刷新会话列表（自动回退到线程列表）")
             let response = try await gateway.sendRequest(
                 method: "sessions.list",
                 params: ["limit": 50, "includeDerivedTitles": true, "includeLastMessage": true]
@@ -95,8 +95,10 @@ struct SessionsView: View {
             sessions = arr.compactMap { dict in
                 guard let key = dict["key"] as? String else { return nil }
                 return SessionInfo(
-                    key: key, agentId: dict["agentId"] as? String,
-                    label: dict["label"] as? String, lastActive: nil,
+                    key: key,
+                    agentId: dict["agentId"] as? String,
+                    label: (dict["displayName"] as? String) ?? (dict["label"] as? String),
+                    lastActive: nil,
                     derivedTitle: dict["derivedTitle"] as? String,
                     lastMessage: dict["lastMessage"] as? String,
                     kind: dict["kind"] as? String
@@ -148,6 +150,7 @@ struct SessionCard: View {
         switch session.kind {
         case "cron": "clock.fill"
         case "subagent": "arrow.triangle.branch"
+        case "main": "bubble.left.and.bubble.right.fill"
         default: "bubble.left.fill"
         }
     }
