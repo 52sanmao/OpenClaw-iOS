@@ -52,7 +52,12 @@ struct ChatView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 16)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            isInputFocused = false
+                        }
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .onChange(of: chatService.messages.count) {
                         withAnimation(.easeOut(duration: 0.2)) {
                             if let lastId = chatService.messages.last?.id {
@@ -112,6 +117,7 @@ struct ChatView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
+        isInputFocused = false
         inputText = ""
         Haptics.impact(.light)
         Task { try? await chatService.send(text) }
